@@ -1,21 +1,22 @@
 import os
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    # Configurações do Azure OpenAI
-    AZURE_OPENAI_ENDPOINT: str
+    # Configurações do Azure OpenAI (LLM)
     AZURE_OPENAI_KEY: str
-    AZURE_OPENAI_DEPLOYMENT: str  # ex: gpt-4o-mini-deploy
-    AZURE_OPENAI_API_VERSION: str = "2024-02-15-preview" # Versão recomendada para Vision
+    AZURE_OPENAI_ENDPOINT: str
+    AZURE_OPENAI_DEPLOYMENT: str
+    AZURE_OPENAI_API_VERSION: str = "2024-02-15-preview"
 
-    # Configurações Gerais
-    PORT: int = 8000
-    PROJECT_NAME: str = "DocValidator Agent (Azure)"
+    # --- NOVOS CAMPOS (Correção do Erro) ---
+    # Configurações do Azure Computer Vision (OCR)
+    AZURE_CV_KEY: str
+    AZURE_CV_ENDPOINT: str
 
-    model_config = SettingsConfigDict(
-        env_file=".env", 
-        env_ignore_empty=True,
-        extra="ignore"
-    )
+    class Config:
+        env_file = ".env"
+        env_file_encoding = 'utf-8'
+        # Permite que variáveis extras no ambiente não quebrem a aplicação
+        extra = "ignore" 
 
 settings = Settings()
