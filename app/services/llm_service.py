@@ -15,7 +15,7 @@ from app.core.exceptions import LLMProcessingError
 class DocumentAnalyzerService:
     # --- CONSTANTES DE CONFIGURAÇÃO ---
     MAX_FILE_SIZE_MB = 15
-    MAX_TEXT_LENGTH = 20000  # Limita o texto enviado à LLM para economizar tokens
+    MAX_TEXT_LENGTH = 25000  # Limita o texto enviado à LLM para economizar tokens
     
     # Assinaturas Binárias (Magic Numbers) para validação de segurança
     MAGIC_NUMBERS = {
@@ -43,16 +43,13 @@ class DocumentAnalyzerService:
 
     def _validate_file_integrity(self, file_data: bytes, extension: str) -> dict:
         """Verifica tamanho e assinatura binária para evitar arquivos maliciosos."""
-        # 1. Validação de Tamanho
         if len(file_data) > (self.MAX_FILE_SIZE_MB * 1024 * 1024):
             return {"valid": False, "error": f"O arquivo excede o limite de {self.MAX_FILE_SIZE_MB}MB."}
 
-        # 2. Validação de Assinatura (Magic Number)
         header = file_data[:4]
         expected_header = self.MAGIC_NUMBERS.get(extension)
         
         if expected_header and not file_data.startswith(expected_header):
-            # Exceção para DOCX/XLSX que são ZIPs (iniciam com PK)
             if extension in ['docx'] and file_data.startswith(b'PK'):
                 return {"valid": True}
             return {"valid": False, "error": f"O arquivo diz ser '.{extension}' mas o conteúdo não corresponde (Cabeçalho inválido)."}
@@ -75,10 +72,14 @@ class DocumentAnalyzerService:
 
     def _extract_text_from_pdf(self, file_bytes: bytes) -> tuple[str, str]:
         """
-        Extrai texto de PDF. Retorna (Texto, Erro).
-        Lida com Senhas e PDFs Escaneados (extraindo imagens internas).
+        Extrai texto de PDF de forma híbrida e robusta.
+        1. Tenta ler texto nativo (pypdf).
+        2. Tenta extrair imagens internas e rodar OCR.
+        3. Retorna a combinação dos dois.
         """
         text_content = ""
+        images_found = False
+        
         try:
             reader = PdfReader(io.BytesIO(file_bytes))
             
@@ -86,26 +87,35 @@ class DocumentAnalyzerService:
             if reader.is_encrypted:
                 return "", "PDF_PASSWORD_PROTECTED"
 
-            # 2. Extração de Texto Nativo
             for page in reader.pages:
-                extracted = page.extract_text()
-                if extracted:
-                    text_content += extracted + " "
-            
-            # 3. Fallback para PDF Escaneado (Se tiver muito pouco texto)
-            if len(text_content.strip()) < 50:
-                print("PDF Escaneado detectado. Iniciando OCR nas imagens internas...")
-                for page in reader.pages:
+                # 2. Extração de Texto Nativo
+                try:
+                    extracted = page.extract_text()
+                    if extracted:
+                        text_content += extracted + "\n"
+                except:
+                    pass
+                
+                # 3. Lógica de Fallback para Imagens (OCR)
+                try:
                     if hasattr(page, 'images') and page.images:
                         for image in page.images:
-                            try:
-                                # image.data são os bytes da imagem dentro do PDF
-                                ocr_text = self._extract_text_cloud(image.data)
-                                text_content += ocr_text + " "
-                            except:
-                                pass # Ignora imagens internas corrompidas
+                            images_found = True
+                            # OCR na imagem encontrada dentro do PDF
+                            ocr_text = self._extract_text_cloud(image.data)
+                            if ocr_text:
+                                text_content += f"\n[CONTEÚDO DE IMAGEM OCR]: {ocr_text}\n"
+                except:
+                    pass # Ignora erros de imagem específica
+            
+            # Validação Final: Se não achou NADA (nem texto nativo, nem texto em imagens)
+            if not text_content.strip():
+                if not images_found:
+                    return "", "PDF_EMPTY_CONTENT"
+                return "", "PDF_NO_TEXT_FOUND"
                             
             return text_content, None
+
         except Exception as e:
             print(f"Erro PDF Genérico: {e}")
             return "", "PDF_CORRUPTED"
@@ -123,18 +133,45 @@ class DocumentAnalyzerService:
         text_clean = " ".join(text.split())
         patterns = {
             "Comprovante de Seguro Desemprego": r"(?i)(PARSEGDES|PAR[5s]EGDE[5s]|PAR\s+SEG\s+DES|SEGURO\s+DESEMPREGO|PARC\s+BENEF\s+MTE)",
-            "Carteira de Trabalho": r"(?i)(carteira\s+de\s+trabalho|dataprev|minist[ée]rio\s+do\s+traba[l1]ho|s[ée]rie\s*\d{3,}|p[o0]legar)",
-            "Comprovante de Residência": r"(?i)(claro|vivo|tim|oi|enel|sabesp|embasa|light|cpfl|corsan|caern|energisa|copasa).{0,300}?(venciment[o0]|nota\s+fisca[l1]|total|fatura|medidor|leitura)",
+            "Carteira de Trabalho": r"(?i)(carteira\s+de\s+trabalho|dataprev|minist[ée]rio\s+do\s+traba[l1]ho|s[ée]rie\s*\d|p[o0]legar)",
+            "Comprovante de Residência": r"(?i)(claro|vivo|tim|oi|enel|sabesp|embasa|light|cpfl|corsan|caern|energisa|copasa|neoenergia).{0,300}?(venciment[o0]|nota\s+fisca[l1]|total|fatura|medidor|leitura)",
             "CPF": r"(?i)(cpf|cic|cadastro\s+de\s+pessoas?\s+f[íi]sicas)",
             "RG": r"(?i)(registro\s+geral|c[ée]dula\s+de\s+identidade|ssp|secretaria\s+de\s+seguran[çc]a)",
-            
-            # Regex Expandido para Investimentos/Poupança
             "Extrato Poupança ou Aplicação": r"(?i)(poup[aã]n[çc]a|aplica[çc][ãa]o\s+autom[áa]tica|rendimento\s+bruto|resgate\s+autom[áa]tico|investimento|CDB|RDB|fundo\s+de\s+investimento)",
-            "Extrato Bancário": r"(?i)(extrato\s+de\s+movimenta[çc][ãa]o|saldo\s+dispon[íi]vel|conta\s+corrente|b[o0]lsa\s+fam[íi1]lia|caixa\s+tem)"
+            "Extrato Bancário": r"(?i)(extrato\s+de\s+conta|conta\s+corrente|extrato\s+mensal|extrato\s+de\s+movimenta[çc][ãa]o|saldo\s+dispon[íi]vel|santander|bradesco|ita[úu]|nubank|inter|caixa\s+tem)",
+            
+            # --- HOLERITE ATUALIZADO (Evita falsos positivos de apenas o título) ---
+            # Exige título E termos financeiros no mesmo documento
+            "Holerite": r"(?i)((holerite|contracheque|demonstrativo\s+de\s+pagamento).{0,1000}?(vencimentos|sal[áa]rio\s+l[íi]quido|total\s+l[íi]quido|base\s+ir|base\s+contrib))"
         }
         for doc_type, regex in patterns.items():
             if re.search(regex, text_clean): return doc_type
         return None
+
+    def _audit_negative_results(self, result_json: dict) -> tuple[bool, str]:
+        """
+        Auditoria de Segurança: Verifica se o documento é um 'Nada Consta' ou 'Vazio'.
+        Retorna (is_safe, reason)
+        """
+        reasoning = str(result_json.get("reasoning", "")).lower()
+        message = str(result_json.get("message", "")).lower()
+        
+        negative_terms = [
+            "não há informe", "não existe", "nada consta", 
+            "ausência de dados", "nenhum registro", "sem dados",
+            "declaração não entregue", "não foram encontrados"
+        ]
+        
+        # Verifica se a IA detectou explicitamente a ausência
+        for term in negative_terms:
+            if term in reasoning or term in message:
+                return False, f"Documento indica ausência de dados: '{term}'."
+                
+        # Se a IA já marcou como INVALID, respeitamos
+        if result_json.get("result") == "INVALID":
+            return False, result_json.get("reasoning", "Documento inválido.")
+            
+        return True, "OK"
 
     def validate_document(self, file_base64: str, expected_type: str, file_name: str = "arquivo.jpg") -> dict:
         # --- 1. Validações de Entrada ---
@@ -161,9 +198,18 @@ class DocumentAnalyzerService:
 
         if extension == 'pdf':
             extracted_text, error_flag = self._extract_text_from_pdf(file_data)
-            # Tratamento de Erros Específicos de PDF
+            
+            # TRATAMENTO DE ERROS ESPECÍFICOS DE PDF
             if error_flag == "PDF_PASSWORD_PROTECTED":
                 return {"status": "error", "message": "O PDF está protegido por senha. Por favor, remova a senha e tente novamente."}
+            
+            if error_flag == "PDF_EMPTY_CONTENT":
+                return {
+                    "status": "error", 
+                    "message": "Não foi possível ler o texto deste PDF. Por favor, converta para IMAGEM (JPG/PNG) ou tire um print da tela e envie novamente.",
+                    "data": {"detected_type": "PDF Ilegível"}
+                }
+                
             if error_flag == "PDF_CORRUPTED":
                 return {"status": "error", "message": "O arquivo PDF parece estar corrompido ou ilegível."}
                 
@@ -174,14 +220,17 @@ class DocumentAnalyzerService:
             extracted_text = self._extract_text_cloud(file_data)
 
         # --- 3. Fase Regex (Rápida e Barata) ---
-        if extracted_text:
+        # Nota: Só aprovamos via Regex se tivermos certeza absoluta.
+        if extracted_text and not is_image:
             detected_regex = self._apply_regex_rules(extracted_text)
             if detected_regex:
                 expected_clean = expected_type.lower()
                 detected_clean = detected_regex.lower()
                 
-                # Verifica match flexível
-                if expected_clean in detected_clean or detected_clean in expected_clean:
+                # Validação de Match
+                valid_match = expected_clean in detected_clean or detected_clean in expected_clean
+                
+                if valid_match:
                     return {
                         "status": "success",
                         "message": "Validado via Regras (Rápido).",
@@ -224,22 +273,45 @@ class DocumentAnalyzerService:
             result_json["method"] = "azure_llm_visual" if is_image else "azure_llm_text"
             result_json["file_type"] = extension
 
-            # Validação Final de Match
-            is_match = result_json.get("is_match", False)
+            # --- 5. Validação Final Inteligente ---
+            
+            # Auditoria de Negativos ("Nada Consta")
+            is_safe, safe_reason = self._audit_negative_results(result_json)
+            if not is_safe:
+                return {
+                    "status": "error",
+                    "message": f"Reprovado: {safe_reason}",
+                    "data": result_json
+                }
+
+            # Lógica de Decisão: A IA é a autoridade. 
+            # Só aprovamos se a IA disser que deu Match (is_match=True).
+            ai_match = result_json.get("is_match", False)
+            
+            # (Opcional) Verificação de Tipo se a IA estiver em dúvida
             detected = result_json.get("detected_type", "").lower()
             expected = expected_type.lower()
+            type_matches = expected in detected or detected in expected
             
-            if detected == expected or expected == "outros" or is_match:
-                is_match = True
+            if ai_match:
+                # Se a IA aprovou as regras de negócio, confiamos nela.
+                final_status = "success"
+                final_msg = "Validado"
+            elif type_matches and not ai_match:
+                # Se o tipo bateu mas a IA reprovou (ex: Holerite sem valor), é REPROVADO.
+                final_status = "error"
+                final_msg = "Documento identificado, mas inválido/incompleto (Regras de Negócio)."
+            else:
+                final_status = "error"
+                final_msg = "Documento Inválido ou Divergente."
 
-            return {"status": "success" if is_match else "error", "message": "Validado" if is_match else "Inválido", "data": result_json}
+            return {"status": final_status, "message": final_msg, "data": result_json}
 
         # --- TRATAMENTO DE ERROS (Robustez) ---
         except RateLimitError:
             return {"status": "error", "message": "O sistema está temporariamente ocupado (Rate Limit). Tente novamente em breve.", "data": {"detected_type": "Erro Sistema"}}
         
         except BadRequestError as e:
-            # Tratamento para Prompt Injection / Filtros de Segurança da Azure
             error_str = str(e)
             if "content_filter" in error_str or "ResponsibleAIPolicyViolation" in error_str:
                 return {
