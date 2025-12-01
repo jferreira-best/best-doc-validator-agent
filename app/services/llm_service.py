@@ -278,32 +278,31 @@ class DocumentAnalyzerService:
             # Auditoria de Negativos ("Nada Consta")
             is_safe, safe_reason = self._audit_negative_results(result_json)
             if not is_safe:
-                return {
-                    "status": "error",
-                    "message": f"Reprovado: {safe_reason}",
-                    "data": result_json
-                }
+                return {"status": "error", "message": f"Reprovado: {safe_reason}", "data": result_json}
 
-            # Lógica de Decisão: A IA é a autoridade. 
-            # Só aprovamos se a IA disser que deu Match (is_match=True).
+            # Lógica de Decisão Rigorosa (Correção: Valida se o tipo bate com o esperado)
+            detected = str(result_json.get("detected_type", "")).lower()
+            expected = str(expected_type).lower()
             ai_match = result_json.get("is_match", False)
             
-            # (Opcional) Verificação de Tipo se a IA estiver em dúvida
-            detected = result_json.get("detected_type", "").lower()
-            expected = expected_type.lower()
-            type_matches = expected in detected or detected in expected
+            # Verifica se o tipo esperado está contido no detectado (ex: "Extrato" em "Extrato Bancário")
+            type_matches = (expected in detected) or (detected in expected)
+
+            # CASO CRÍTICO: IA diz que o doc é válido, mas é do TIPO ERRADO.
+            # Ex: Usuário pediu RG, mas mandou CPF.
+            if ai_match and not type_matches:
+                final_status = "error"
+                final_msg = f"Documento incorreto. Você enviou um '{result_json.get('detected_type')}', mas era esperado um '{expected_type}'."
             
-            if ai_match:
-                # Se a IA aprovou as regras de negócio, confiamos nela.
+            elif ai_match and type_matches:
+                # Sucesso: Tipo correto E validado pela IA
                 final_status = "success"
-                final_msg = "Validado"
-            elif type_matches and not ai_match:
-                # Se o tipo bateu mas a IA reprovou (ex: Holerite sem valor), é REPROVADO.
-                final_status = "error"
-                final_msg = "Documento identificado, mas inválido/incompleto (Regras de Negócio)."
+                final_msg = "Validado com Sucesso"
+                
             else:
+                # Falha: Reprovado pela IA (qualidade ruim, falso, etc)
                 final_status = "error"
-                final_msg = "Documento Inválido ou Divergente."
+                final_msg = f"Reprovado: {result_json.get('reasoning', 'Documento não atende aos requisitos.')}"
 
             return {"status": final_status, "message": final_msg, "data": result_json}
 
