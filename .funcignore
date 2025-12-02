@@ -1,0 +1,10 @@
+.git*
+.vscode
+local.settings.json
+test
+app/frontend/
+tests
+env
+.venv
+__pycache__
+*.log

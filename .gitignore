@@ -4,6 +4,7 @@ env/
 __pycache__/
 *.pyc
 
+
 # Segredos / configs locais
 .env
 local.settings.json

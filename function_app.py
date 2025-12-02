@@ -6,7 +6,10 @@ from app.services.llm_service import DocumentAnalyzerService
 # Inicializa o App da Function
 app = func.FunctionApp()
 
-@app.route(route="validate_document", auth_level=func.AuthLevel.FUNCTION)
+
+
+@app.function_name(name="validate_document")
+@app.route(route="validate_document", auth_level=func.AuthLevel.ANONYMOUS, methods=['POST'])
 def validate_document(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Requisição recebida: Validação de Documento (Híbrida/Segura).')
 
