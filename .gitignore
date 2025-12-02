@@ -10,5 +10,7 @@ __pycache__/
 local.settings.json
 
 # Outras coisas opcionais
-.vscode/
+
 .idea/
+
+.python_packages
