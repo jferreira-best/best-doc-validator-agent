@@ -73,9 +73,6 @@ class DocumentAnalyzerService:
     def _extract_text_from_pdf(self, file_bytes: bytes) -> tuple[str, str]:
         """
         Extrai texto de PDF de forma híbrida e robusta.
-        1. Tenta ler texto nativo (pypdf).
-        2. Tenta extrair imagens internas e rodar OCR.
-        3. Retorna a combinação dos dois.
         """
         text_content = ""
         images_found = False
@@ -83,9 +80,18 @@ class DocumentAnalyzerService:
         try:
             reader = PdfReader(io.BytesIO(file_bytes))
             
-            # 1. Checagem de Senha
+            # --- CORREÇÃO DEFINITIVA ---
             if reader.is_encrypted:
-                return "", "PDF_PASSWORD_PROTECTED"
+                try:
+                    # Tenta desbloquear com senha vazia (comum em Gov.br)
+                    code = reader.decrypt("")
+                    # Se code for 0, falhou. Mas vamos deixar o try/except cuidar disso na leitura.
+                except Exception:
+                    # Se explodir aqui, é porque realmente precisa de senha
+                    return "", "PDF_PASSWORD_PROTECTED"
+
+            # --- REMOVIDA A SEGUNDA CHECAGEM DE 'if reader.is_encrypted' AQUI ---
+            # Agora confiamos que, se passou pelo bloco acima, podemos tentar ler.
 
             for page in reader.pages:
                 # 2. Extração de Texto Nativo
@@ -94,21 +100,22 @@ class DocumentAnalyzerService:
                     if extracted:
                         text_content += extracted + "\n"
                 except:
+                    # Se falhar ao ler a página, pode ser que a senha vazia não funcionou.
+                    # Mas deixamos continuar para tentar OCR ou outras páginas.
                     pass
                 
-                # 3. Lógica de Fallback para Imagens (OCR)
+                # ... (resto do código de imagens continua igual) ...
                 try:
                     if hasattr(page, 'images') and page.images:
                         for image in page.images:
                             images_found = True
-                            # OCR na imagem encontrada dentro do PDF
                             ocr_text = self._extract_text_cloud(image.data)
                             if ocr_text:
                                 text_content += f"\n[CONTEÚDO DE IMAGEM OCR]: {ocr_text}\n"
                 except:
-                    pass # Ignora erros de imagem específica
+                    pass 
             
-            # Validação Final: Se não achou NADA (nem texto nativo, nem texto em imagens)
+            # Validação Final
             if not text_content.strip():
                 if not images_found:
                     return "", "PDF_EMPTY_CONTENT"
@@ -117,9 +124,14 @@ class DocumentAnalyzerService:
             return text_content, None
 
         except Exception as e:
+            # Se o erro for de criptografia persistente, capturamos aqui
+            if "password" in str(e).lower():
+                return "", "PDF_PASSWORD_PROTECTED"
             print(f"Erro PDF Genérico: {e}")
             return "", "PDF_CORRUPTED"
+        
 
+        
     def _extract_text_from_docx(self, file_bytes: bytes) -> str:
         """Lê arquivos Word (.docx)."""
         try:
@@ -135,7 +147,8 @@ class DocumentAnalyzerService:
             "Comprovante de Seguro Desemprego": r"(?i)(PARSEGDES|PAR[5s]EGDE[5s]|PAR\s+SEG\s+DES|SEGURO\s+DESEMPREGO|PARC\s+BENEF\s+MTE)",
             "Carteira de Trabalho": r"(?i)(carteira\s+de\s+trabalho|dataprev|minist[ée]rio\s+do\s+traba[l1]ho|s[ée]rie\s*\d|p[o0]legar)",
             "Comprovante de Residência": r"(?i)(claro|vivo|tim|oi|enel|sabesp|embasa|light|cpfl|corsan|caern|energisa|copasa|neoenergia).{0,300}?(venciment[o0]|nota\s+fisca[l1]|total|fatura|medidor|leitura)",
-            "CPF": r"(?i)(cpf|cic|cadastro\s+de\s+pessoas?\s+f[íi]sicas)",
+            #"CPF": r"(?i)(cpf|cic|cadastro\s+de\s+pessoas?\s+f[íi]sicas)",
+            "CPF": r"(?i)(comprovante\s+de\s+inscri[çc][ãa]o|ministerio\s+da\s+fazenda|secretaria\s+da\s+receita\s+federal|pessoa\s+f[íi]sica)",
             "RG": r"(?i)(registro\s+geral|c[ée]dula\s+de\s+identidade|ssp|secretaria\s+de\s+seguran[çc]a)",
             "Extrato Poupança ou Aplicação": r"(?i)(poup[aã]n[çc]a|aplica[çc][ãa]o\s+autom[áa]tica|rendimento\s+bruto|resgate\s+autom[áa]tico|investimento|CDB|RDB|fundo\s+de\s+investimento)",
             "Extrato Bancário": r"(?i)(extrato\s+de\s+conta|conta\s+corrente|extrato\s+mensal|extrato\s+de\s+movimenta[çc][ãa]o|saldo\s+dispon[íi]vel|santander|bradesco|ita[úu]|nubank|inter|caixa\s+tem)",
@@ -191,6 +204,18 @@ class DocumentAnalyzerService:
         if not integrity_check["valid"]:
              return {"status": "error", "message": f"Arquivo rejeitado por segurança: {integrity_check.get('error')}"}
 
+         # 👉 AQUI entra a regra dos "Outros"
+        #if str(expected_type).lower() == "outros":
+        #   return {
+        ##        "status": "success",
+        #        "message": "Documento aceito como 'Outros' sem validação de tipo/conteúdo.",
+        #       "data": {
+        #            "detected_type": "Outros",
+        #            "file_type": extension,
+        #            "method": "bypass_outros"
+        #       }
+        #    }
+
         # --- 2. Extração de Conteúdo ---
         extracted_text = ""
         is_image = False
@@ -218,6 +243,35 @@ class DocumentAnalyzerService:
         else:
             is_image = True # JPG, PNG
             extracted_text = self._extract_text_cloud(file_data)
+
+        
+        # 👉 Regra especial para "Outros": só checar se está legível
+        if str(expected_type).lower() == "outros":
+            # Se não conseguiu extrair nada ou muito pouco texto, considera ilegível
+            if not extracted_text or len(extracted_text.strip()) < 30:
+                return {
+                    "status": "error",
+                    "message": "Não foi possível ler o conteúdo do documento. "
+                               "Verifique se está legível/nítido e envie novamente.",
+                    "data": {
+                        "detected_type": "Outros",
+                        "file_type": extension,
+                        "method": "legibility_check"
+                    }
+                }
+
+            # Conteúdo ok → aceita sem passar por Regex nem LLM
+            return {
+                "status": "success",
+                "message": "Documento aceito como 'Outros' (conteúdo legível).",
+                "data": {
+                    "detected_type": "Outros",
+                    "file_type": extension,
+                    "method": "legibility_check",
+                    "step_1_extract_snippet": extracted_text[:200]
+                }
+            }
+       
 
         # --- 3. Fase Regex (Rápida e Barata) ---
         # Nota: Só aprovamos via Regex se tivermos certeza absoluta.

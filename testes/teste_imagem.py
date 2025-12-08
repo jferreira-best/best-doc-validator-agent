@@ -1,7 +1,7 @@
 import base64
 
 # Caminho da sua imagem
-path = r"C:/Users/z3xai/Documents/Defensoria_publica/Arquivos/RG.jpg"
+path = r"C:/Users/z3xai/Downloads/4_Comprovante de endereço.pdf"
 
 with open(path, "rb") as img:
     b64 = base64.b64encode(img.read()).decode('utf-8')

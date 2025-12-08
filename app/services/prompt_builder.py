@@ -47,9 +47,9 @@ class PromptBuilder:
              ACEITE COMO VÁLIDO SE LER: "PAR5EGDES", "PARSEGDE5" ou "PAR SEG DES".
         
         5. CPF (Cadastro de Pessoas Físicas):
-           - MODELO NOVO: Busca por "CPF" ou "Comprovante de Inscrição".
-           - MODELO ANTIGO (CIC): Aceite se ler "CIC" ou "CARTÃO DE IDENTIFICAÇÃO DO CONTRIBUINTE".
-           - REGRA: "CIC" é sinônimo válido de "CPF".
+           - DOCUMENTO OFICIAL APENAS: Deve ser o "Cartão Azul" antigo, o "Cartão Rígido" ou o "Comprovante de Inscrição" impresso do site da Receita Federal.
+           - REGRA DE EXCLUSÃO CRÍTICA: Quase todos os documentos (Contas, Contratos, Holerites) possuem um número de CPF escrito. A simples presença da sigla "CPF" NÃO torna o documento um "Comprovante de CPF".
+           - O documento DEVE ter o título "Comprovante de Inscrição no CPF" ou "Ministério da Fazenda".   
 
         6. Carteira de Trabalho (CTPS):
            - DIGITAL: "Carteira de Trabalho Digital", "Dataprev" ou "Dados básicos".
@@ -68,13 +68,15 @@ class PromptBuilder:
            - Deve conter "CARTEIRA NACIONAL DE HABILITACAO".
 
         --- O QUE REJEITAR (Negative Constraints) ---
-        1. Documentos de "Agendamento de Pagamento" NÃO são comprovantes de pagamento efetivo.
+        1. Documentos de "Agendamento de Pagamento" NÃO são comprovantes.
         2. "Extrato de FGTS" NÃO é Holerite.
         3. Fotos parciais onde não é possível ler o nome do titular ou a data.
         4. "NADA CONSTA" / AUSÊNCIA DE DADOS: 
            - Rejeite IMEDIATAMENTE se o documento contiver frases como:
              "Não há Informe de Rendimentos", "Nada consta", "Não foram encontrados registros", "Ausência de movimentação", "Declaração não entregue".
            - Nesses casos, defina is_match: false.
+        5. Faturas de cartão ou contas de consumo (luz/água) NÃO são "CPF", mesmo que o número do CPF esteja impresso nelas. Se o layout for de uma conta, classifique como "Comprovante de Residência" ou "Outros".
+       
 
         --- INSTRUÇÃO DE SAÍDA ---
         O texto fornecido foi extraído via OCR e pode conter formatação quebrada. Foque no contexto semântico.
