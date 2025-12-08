@@ -131,6 +131,30 @@ class DocumentAnalyzerService:
             return "", "PDF_CORRUPTED"
         
 
+    def _is_legible_text(self, text: str, is_image: bool) -> bool:
+        """Heurística simples para decidir se o texto extraído é legível."""
+        if not text:
+            return False
+
+        # Normaliza espaços
+        clean = re.sub(r"\s+", " ", text).strip()
+        if not clean:
+            return False
+
+        # Exigir um pouco mais de texto para imagem
+        min_len = 80 if is_image else 40
+        if len(clean) < min_len:
+            return False
+
+        # Conta palavras 'relevantes' (≥ 3 letras)
+        words = re.split(r"\W+", clean)
+        meaningful = [w for w in words if len(w) >= 3]
+        min_words = 10 if is_image else 5
+        if len(meaningful) < min_words:
+            return False
+
+        return True
+
         
     def _extract_text_from_docx(self, file_bytes: bytes) -> str:
         """Lê arquivos Word (.docx)."""
@@ -247,12 +271,11 @@ class DocumentAnalyzerService:
         
         # 👉 Regra especial para "Outros": só checar se está legível
         if str(expected_type).lower() == "outros":
-            # Se não conseguiu extrair nada ou muito pouco texto, considera ilegível
-            if not extracted_text or len(extracted_text.strip()) < 30:
+            if not self._is_legible_text(extracted_text, is_image):
                 return {
                     "status": "error",
                     "message": "Não foi possível ler o conteúdo do documento. "
-                               "Verifique se está legível/nítido e envie novamente.",
+                            "Verifique se está legível/nítido e envie novamente.",
                     "data": {
                         "detected_type": "Outros",
                         "file_type": extension,
@@ -260,7 +283,6 @@ class DocumentAnalyzerService:
                     }
                 }
 
-            # Conteúdo ok → aceita sem passar por Regex nem LLM
             return {
                 "status": "success",
                 "message": "Documento aceito como 'Outros' (conteúdo legível).",
@@ -271,7 +293,6 @@ class DocumentAnalyzerService:
                     "step_1_extract_snippet": extracted_text[:200]
                 }
             }
-       
 
         # --- 3. Fase Regex (Rápida e Barata) ---
         # Nota: Só aprovamos via Regex se tivermos certeza absoluta.
