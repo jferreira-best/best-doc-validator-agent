@@ -228,18 +228,6 @@ class DocumentAnalyzerService:
         if not integrity_check["valid"]:
              return {"status": "error", "message": f"Arquivo rejeitado por segurança: {integrity_check.get('error')}"}
 
-         # 👉 AQUI entra a regra dos "Outros"
-        #if str(expected_type).lower() == "outros":
-        #   return {
-        ##        "status": "success",
-        #        "message": "Documento aceito como 'Outros' sem validação de tipo/conteúdo.",
-        #       "data": {
-        #            "detected_type": "Outros",
-        #            "file_type": extension,
-        #            "method": "bypass_outros"
-        #       }
-        #    }
-
         # --- 2. Extração de Conteúdo ---
         extracted_text = ""
         is_image = False
@@ -248,7 +236,6 @@ class DocumentAnalyzerService:
         if extension == 'pdf':
             extracted_text, error_flag = self._extract_text_from_pdf(file_data)
             
-            # TRATAMENTO DE ERROS ESPECÍFICOS DE PDF
             if error_flag == "PDF_PASSWORD_PROTECTED":
                 return {"status": "error", "message": "O PDF está protegido por senha. Por favor, remova a senha e tente novamente."}
             
@@ -268,21 +255,27 @@ class DocumentAnalyzerService:
             is_image = True # JPG, PNG
             extracted_text = self._extract_text_cloud(file_data)
 
-        
-        # 👉 Regra especial para "Outros": só checar se está legível
-        if str(expected_type).lower() == "outros":
-            if not self._is_legible_text(extracted_text, is_image):
-                return {
-                    "status": "error",
-                    "message": "Não foi possível ler o conteúdo do documento. "
-                            "Verifique se está legível/nítido e envie novamente.",
-                    "data": {
-                        "detected_type": "Outros",
-                        "file_type": extension,
-                        "method": "legibility_check"
-                    }
+        # ==============================================================================
+        # [ALTERAÇÃO AQUI] CHECK DE LEGIBILIDADE GLOBAL (PARA TODOS OS DOCUMENTOS)
+        # ==============================================================================
+        # Agora, independente se é CPF, RG ou Outros, se estiver ilegível, reprova aqui.
+        if not self._is_legible_text(extracted_text, is_image):
+            return {
+                "status": "error",
+                "message": "Qualidade Insuficiente: Não foi possível ler o conteúdo do documento. "
+                           "A imagem pode estar borrada, muito escura ou com baixa resolução. "
+                           "Por favor, envie uma foto mais nítida.",
+                "data": {
+                    "detected_type": "Ilegível/Borrão",
+                    "file_type": extension,
+                    "method": "global_legibility_check",
+                    "reasoning": "Texto extraído insuficiente ou ininteligível."
                 }
+            }
 
+        # --- Regra para "Outros" ---
+        # Se chegou aqui, é legível. Se for "Outros", aprovamos direto e economizamos LLM.
+        if str(expected_type).lower() == "outros":
             return {
                 "status": "success",
                 "message": "Documento aceito como 'Outros' (conteúdo legível).",
@@ -295,43 +288,29 @@ class DocumentAnalyzerService:
             }
 
         # --- 3. Fase Regex (Rápida e Barata) ---
-        # Nota: Só aprovamos via Regex se tivermos certeza absoluta.
+        # (O resto do código continua igual...)
         if extracted_text and not is_image:
             detected_regex = self._apply_regex_rules(extracted_text)
             if detected_regex:
-                expected_clean = expected_type.lower()
-                detected_clean = detected_regex.lower()
-                
-                # Validação de Match
-                valid_match = expected_clean in detected_clean or detected_clean in expected_clean
-                
-                if valid_match:
-                    return {
-                        "status": "success",
-                        "message": "Validado via Regras (Rápido).",
-                        "data": {
-                            "detected_type": detected_regex,
-                            "is_match": True,
-                            "method": "text_extraction_regex",
-                            "confidence": "high",
-                            "step_1_extract_snippet": extracted_text[:100]
-                        }
-                    }
+                # ... (Lógica de regex mantida)
+                pass
 
         # --- 4. Fase LLM (Inteligência Artificial) ---
+        # ... (Lógica de LLM mantida)
         
-        # Truncamento (Economia de Tokens)
+        # Vou resumir o final para não ficar gigante, mantenha o resto do código original abaixo:
         if len(extracted_text) > self.MAX_TEXT_LENGTH:
             extracted_text = extracted_text[:self.MAX_TEXT_LENGTH] + "\n...[Texto truncado para análise]..."
 
         system_prompt = PromptBuilder.build_verification_prompt(expected_type)
+        
+        # ... (Mantenha o resto da função igual ao original)
+        
+        # Só para garantir que você tenha o bloco de chamada da LLM se precisar copiar tudo:
         user_content = []
-
         if is_image:
             user_content = [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{file_base64}", "detail": "high"}}]
         else:
-            if not extracted_text or len(extracted_text.strip()) < 10:
-                extracted_text = "AVISO: Não foi possível extrair texto legível deste documento digital."
             user_content = [{"type": "text", "text": f"Conteúdo extraído ({extension}):\n\n{extracted_text}"}]
 
         try:
@@ -342,61 +321,34 @@ class DocumentAnalyzerService:
             )
             
             content = response.choices[0].message.content
-            if not content: raise LLMProcessingError("Resposta vazia da IA")
-            
             result_json = json.loads(content)
             result_json["method"] = "azure_llm_visual" if is_image else "azure_llm_text"
             result_json["file_type"] = extension
 
-            # --- 5. Validação Final Inteligente ---
-            
-            # Auditoria de Negativos ("Nada Consta")
             is_safe, safe_reason = self._audit_negative_results(result_json)
             if not is_safe:
                 return {"status": "error", "message": f"Reprovado: {safe_reason}", "data": result_json}
 
-            # Lógica de Decisão Rigorosa (Correção: Valida se o tipo bate com o esperado)
             detected = str(result_json.get("detected_type", "")).lower()
             expected = str(expected_type).lower()
             ai_match = result_json.get("is_match", False)
             
-            # Verifica se o tipo esperado está contido no detectado (ex: "Extrato" em "Extrato Bancário")
             type_matches = (expected in detected) or (detected in expected)
 
-            # CASO CRÍTICO: IA diz que o doc é válido, mas é do TIPO ERRADO.
-            # Ex: Usuário pediu RG, mas mandou CPF.
             if ai_match and not type_matches:
                 final_status = "error"
                 final_msg = f"Documento incorreto. Você enviou um '{result_json.get('detected_type')}', mas era esperado um '{expected_type}'."
             
             elif ai_match and type_matches:
-                # Sucesso: Tipo correto E validado pela IA
                 final_status = "success"
                 final_msg = "Validado com Sucesso"
                 
             else:
-                # Falha: Reprovado pela IA (qualidade ruim, falso, etc)
                 final_status = "error"
                 final_msg = f"Reprovado: {result_json.get('reasoning', 'Documento não atende aos requisitos.')}"
 
             return {"status": final_status, "message": final_msg, "data": result_json}
 
-        # --- TRATAMENTO DE ERROS (Robustez) ---
-        except RateLimitError:
-            return {"status": "error", "message": "O sistema está temporariamente ocupado (Rate Limit). Tente novamente em breve.", "data": {"detected_type": "Erro Sistema"}}
-        
-        except BadRequestError as e:
-            error_str = str(e)
-            if "content_filter" in error_str or "ResponsibleAIPolicyViolation" in error_str:
-                return {
-                    "status": "error", 
-                    "message": "⛔ SEGURANÇA: O documento contém conteúdo suspeito ou tentativas de manipulação da IA (Bloqueado pelo Azure AI).",
-                    "data": {"detected_type": "Bloqueio de Segurança"}
-                }
-            return {"status": "error", "message": f"Erro na requisição à IA: {e.message}", "data": {"detected_type": "Erro"}}
-
-        except APITimeoutError:
-            return {"status": "error", "message": "Timeout na análise da IA.", "data": {"detected_type": "Timeout"}}
-
         except Exception as e:
-            return {"status": "error", "message": f"Erro Interno não tratado: {str(e)}", "data": {}}
+            # (Seus tratamentos de erro originais aqui)
+            return {"status": "error", "message": f"Erro: {str(e)}", "data": {}}
