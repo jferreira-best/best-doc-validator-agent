@@ -42,19 +42,47 @@ class DocumentAnalyzerService:
         )
 
     def _validate_file_integrity(self, file_data: bytes, extension: str) -> dict:
-        """Verifica tamanho e assinatura binária para evitar arquivos maliciosos."""
+        """
+        Verifica tamanho e assinatura binária (Magic Numbers).
+        
+        AJUSTE DE SEGURANÇA:
+        Permite que a extensão não bata exatamente com o conteúdo (ex: PNG renomeado para JPG),
+        DESDE QUE o conteúdo seja de um formato aceito na lista segura.
+        """
+        # 1. Validação de Tamanho
         if len(file_data) > (self.MAX_FILE_SIZE_MB * 1024 * 1024):
             return {"valid": False, "error": f"O arquivo excede o limite de {self.MAX_FILE_SIZE_MB}MB."}
 
+        # 2. Validação Estrita de Magic Numbers
         header = file_data[:4]
         expected_header = self.MAGIC_NUMBERS.get(extension)
         
-        if expected_header and not file_data.startswith(expected_header):
-            if extension in ['docx'] and file_data.startswith(b'PK'):
-                return {"valid": True}
-            return {"valid": False, "error": f"O arquivo diz ser '.{extension}' mas o conteúdo não corresponde (Cabeçalho inválido)."}
+        # Se bater exatamente com a extensão, ótimo.
+        if expected_header and file_data.startswith(expected_header):
+            return {"valid": True}
             
-        return {"valid": True}
+        # 3. Validação Flexível (Fallback Seguro)
+        # Se não bateu com a extensão, verificamos se é ALGUM outro formato permitido.
+        # Isso resolve o caso do usuário que salvou PNG como JPG.
+        is_safe_format = False
+        detected_format = "desconhecido"
+        
+        for fmt, magic in self.MAGIC_NUMBERS.items():
+            if file_data.startswith(magic):
+                is_safe_format = True
+                detected_format = fmt
+                break
+        
+        if is_safe_format:
+            # Opcional: Logar que houve uma divergência, mas aceitar
+            # print(f"Aviso: Arquivo nomeado como .{extension} mas detectado como .{detected_format}. Aceitando.")
+            return {"valid": True}
+
+        # Se chegou aqui, o arquivo tem um header que não está na nossa lista de permitidos (ex: EXE, SH, BAT)
+        return {
+            "valid": False, 
+            "error": f"O arquivo possui uma assinatura inválida ou não suportada. Extensão diz '.{extension}', mas o conteúdo não é uma imagem ou PDF válido."
+        }
 
     def _extract_text_cloud(self, image_bytes: bytes) -> str:
         """Usa Azure Vision para OCR de alta precisão em imagens."""

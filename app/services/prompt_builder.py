@@ -32,14 +32,15 @@ class PromptBuilder:
              d) Códigos de verba (ex: "Código", "Denominação", "Vencimento", "Descontos").
 
         2. Extrato Bancário (Geral/Conta Corrente):
-           - REGRA DE ACEITAÇÃO: Se o documento tiver o título "Extrato de Conta Corrente", "Conta Corrente", "Extrato Mensal", "Lançamentos" ou "Histórico", ele É VÁLIDO como "Extrato Bancário".
-           - NÃO REJEITE apenas porque o título não diz a palavra "Bancário". "Conta Corrente" é o termo padrão de mercado (Santander, Itaú, Bradesco).
+           - TÍTULOS VÁLIDOS OBRIGATÓRIOS: "Extrato da Conta Bancária", "Extrato de Conta Bancária", "Extrato de Conta Corrente", "Conta Corrente", "Extrato Mensal", "Lançamentos" ou "Histórico".
+           - REGRA FLEXÍVEL: Se contiver o título "Extrato da Conta Bancária", ACEITE IMEDIATAMENTE.
+           - NÃO REJEITE apenas porque o título não diz a palavra "Bancário" se houver "Conta Corrente".
            - Deve conter movimentação financeira: "Saldo", "Extrato de Movimentação", "Transferência", "Pix", "Saque".
 
         3. Extrato de Poupança ou Aplicação:
-           - O título do documento PODE ser "Extrato de Conta Corrente". ISSO É COMUM.
-           - PARA VALIDAR COMO POUPANÇA: O documento deve conter termos que indiquem investimento.
-           - Palavras-chave: "Poupança", "Aplicação Automática", "Rendimento", "Investimento", "CDB", "Resgate Automático", "Fundo de Investimento" ou "Remuneração".
+           - TÍTULOS VÁLIDOS: "Extrato de Poupança", "Poupança", "Extrato da Conta Bancária", "Extrato de Conta".
+           - REGRA DE EXCEÇÃO (SOLICITADA): Se o documento tiver o título "Extrato da Conta Bancária", ele deve ser ACEITO como Poupança se o usuário estiver esperando esse tipo, mesmo que não haja a palavra "Poupança" explícita.
+           - Para outros títulos genéricos, procure palavras-chave: "Aplicação Automática", "Rendimento", "Investimento", "CDB", "Resgate Automático" ou "Remuneração".
 
         4. Seguro Desemprego:
            - PALAVRA-CHAVE: Procure pela sigla "PARSEGDES" (Parcela Seguro Desemprego), "PARC BENEF MTE" ou "FAT".
@@ -83,7 +84,7 @@ class PromptBuilder:
 
         Responda APENAS neste formato JSON:
         {{
-            "step_1_keywords": "Cite as palavras-chave exatas encontradas (ex: 'Líquido a Receber', 'Aplicação Automática', 'Conta Corrente')",
+            "step_1_keywords": "Cite as palavras-chave exatas encontradas (ex: 'Líquido a Receber', 'Aplicação Automática', 'Extrato da Conta Bancária')",
             "detected_type": "Nome da Categoria Detectada (Ou 'Aviso de Inexistência' se cair na regra 4 de rejeição)",
             "is_match": true/false (true se detected_type atender à expectativa do usuário, seguindo as regras acima),
             "confidence": "high/medium/low",
