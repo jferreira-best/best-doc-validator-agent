@@ -56,11 +56,18 @@ class PromptBuilder:
            - DIGITAL: "Carteira de Trabalho Digital", "Dataprev" ou "Dados básicos".
            - FÍSICA: "CARTEIRA PROFISSIONAL", "MINISTERIO DO TRABALHO", "Série/Número" ou presença de foto antiga e impressão digital.
 
-        7. Comprovante de Residência (Contas de Consumo):
-           - REGRA DE VALIDAÇÃO DUPLA: O documento deve ter o NOME DA CONCESSIONÁRIA + ENDEREÇO/COBRANÇA.
-           - Fornecedores: Claro, Vivo, Tim, Enel, Sabesp, Light, CPFL, Embasa, Caern, Corsan, Neoenergia, etc.
-           - Termos Obrigatórios: "Vencimento", "Total a Pagar", "Nota Fiscal", "Fatura", "Medidor" ou "Instalação".
-           - NOTA: Apenas o logo da empresa SEM dados de consumo não é válido.
+        7. Comprovante de Residência (Abrangente):
+           - CONCEITO REAL: Aceite qualquer correspondência oficial que vincule o NOME DO TITULAR a um ENDEREÇO FÍSICO.
+           - TIPOS VÁLIDOS (Ampliado): 
+             a) Contas de Consumo (Água, Luz, Gás, Internet/Telefone).
+             b) Faturas de Cartão de Crédito (Nubank, Itaú, Santander, etc).
+             c) Boletos Bancários e Carnês de Loja (Casas Bahia, Renner, etc).
+             d) Correspondência Bancária ou de Órgãos Públicos (DETRAN, Prefeitura).
+           - CRITÉRIO DE VALIDAÇÃO:
+             - Deve conter o BLOCO DE ENDEREÇO (Rua, Número, Bairro, Cidade/UF/CEP).
+             - Deve ter um REMETENTE claro (Logo do Banco, Loja ou Concessionária).
+           - NÃO EXIJA "CONSUMO": Faturas de cartão ou boletos NÃO têm "Medidor" ou "Leitura". Se tiver Endereço + Nome + Logo Institucional, É VÁLIDO.
+           - UNIFICAÇÃO DE NOME: Se o documento for válido, classifique a saida (detected_type) SEMPRE como "Comprovante de Residência", mesmo que o usuário chame de "Comprovante de Endereço".
 
         8. RG (Registro Geral):
            - Deve conter "REGISTRO GERAL", "CÉDULA DE IDENTIDADE" ou Brasão da República/Estado.
