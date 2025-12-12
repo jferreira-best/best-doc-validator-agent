@@ -12,6 +12,7 @@ from openai import AzureOpenAI, APIConnectionError, RateLimitError, BadRequestEr
 from app.core.config import settings
 from app.services.prompt_builder import PromptBuilder
 from app.core.exceptions import LLMProcessingError
+import unicodedata
 
 class DocumentAnalyzerService:
     # --- CONSTANTES DE CONFIGURAÇÃO ---
@@ -195,6 +196,15 @@ class DocumentAnalyzerService:
             return False, result_json.get("reasoning", "Documento inválido.")
             
         return True, "OK"
+
+    def _normalize_text(self, text: str) -> str:
+        """Remove acentos e coloca em minúsculas para comparação segura."""
+        if not text: return ""
+        # Normaliza para decompor caracteres (ex: 'ê' vira 'e' + '^')
+        nfkd_form = unicodedata.normalize('NFKD', str(text))
+        # Filtra apenas caracteres não-diacríticos (remove os acentos) e converte para minúsculo
+        return "".join([c for c in nfkd_form if not unicodedata.combining(c)]).lower().strip()
+
 
     def validate_document(self, file_base64: str, expected_type: str, file_name: str = "arquivo.jpg") -> dict:
         # --- 1. Validações de Entrada ---
